@@ -1,13 +1,9 @@
-import admin from 'firebase-admin';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getApps, initializeApp } from 'firebase-admin/app';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from "@google/genai";
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import firebaseConfig from './firebase-applet-config.json';
 
 dotenv.config();
 
@@ -18,24 +14,11 @@ try {
     currentDirname = path.dirname(fileURLToPath(import.meta.url));
   }
 } catch (e) {
-  // Fallback to __dirname in CJS if it exists
   if (typeof __dirname !== 'undefined') {
     currentDirname = __dirname;
   }
 }
 const finalDirname = currentDirname;
-
-// Initialize Firebase Admin
-// We keep it for future use, but primary state management moves to frontend
-// to avoid IAM PERMISSION_DENIED errors on the server.
-if (!getApps().length) {
-  try {
-    initializeApp(); 
-    console.log('[Backend] Firebase Admin initialized.');
-  } catch (err: any) {
-    console.error('[Backend] Firebase Admin Init Error:', err.message);
-  }
-}
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || 'dummy-key',
@@ -46,15 +29,12 @@ const ai = new GoogleGenAI({
   }
 });
 
-/**
- * Helper function to handle retries with exponential backoff for AI calls.
- */
 async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 5, initialDelay = 5000): Promise<T> {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
     try {
-      if (!process.env.GEMINI_API_KEY) {
-        throw new Error('GEMINI_API_KEY is missing. Please add it to your Secrets.');
+      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'dummy-key') {
+        throw new Error('GEMINI_API_KEY is missing. Please add it to your Secrets in Settings.');
       }
       return await fn(i);
     } catch (error: any) {
@@ -78,114 +58,63 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Health check
+  console.log('[Server] Initializing API routes...');
+
+  // 1. Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // API Routes
+  // 2. Research API
   app.post('/api/research', async (req, res) => {
     const { query, depth } = req.body;
-
-    if (!query) {
-      return res.status(400).json({ error: 'Missing query' });
-    }
+    if (!query) return res.status(400).json({ error: 'Missing query' });
 
     try {
-      console.log(`[Research] Starting AI Agent for: "${query}" (Depth: ${depth})`);
-      
+      console.log(`[Research] Request received: "${query}"`);
       const prompt = `Conduct a comprehensive ${depth || 'standard'} research on the following topic: "${query}". 
-      Provide a detailed markdown report with:
-      - Executive Summary
-      - Key Findings
-      - Detailed Analysis
-      - Future Outlook
-      - Sources & Citations
-      
-      Format the response beautifully in Markdown. Be thorough and professional.`;
+      Provide a detailed markdown report with Executive Summary, Key Findings, Detailed Analysis, and Sources.
+      Format the response beautifully in Markdown.`;
 
       const interaction = await withRetry(async (attempt) => {
-        // Using the correct Interactions API pattern for @google/genai
-        const modelName = "gemini-3.8-flash";
-        console.log(`[Research] Attempt ${attempt + 1} | Model: ${modelName}`);
-
         return await ai.interactions.create({
-          model: modelName,
+          model: "gemini-3.8-flash",
           input: prompt,
           tools: [{ type: 'google_search' }]
         });
       });
 
-      const report = interaction.output_text || 'No report generated.';
-      console.log('[Research] AI Agent completed.');
-      
-      return res.json({ success: true, report });
-
+      return res.json({ success: true, report: interaction.output_text || 'No report generated.' });
     } catch (error: any) {
       console.error('[Research] Error:', error.message);
-      const errorMsg = error.message?.toLowerCase() || '';
-      const isQuota = errorMsg.includes('429') || errorMsg.includes('quota');
-      
+      const isQuota = error.message?.toLowerCase().includes('quota') || error.message?.includes('429');
       return res.status(isQuota ? 429 : 500).json({ 
-        error: isQuota ? 'Rate limit exceeded' : 'Research failed', 
-        message: isQuota 
-          ? 'ظرفیت رایگان هوش مصنوعی تکمیل است. لطفاً کمی صبر کنید یا از کلید شخصی استفاده کنید.' 
-          : error.message 
+        error: isQuota ? 'Rate limit' : 'Failed', 
+        message: isQuota ? 'ظرفیت هوش مصنوعی تکمیل است.' : error.message 
       });
     }
   });
 
+  // 3. Chat API
   app.post('/api/chat', async (req, res) => {
     const { message, report } = req.body;
-
-    if (!message || !report) {
-      return res.status(400).json({ error: 'Missing message or report' });
-    }
+    if (!message || !report) return res.status(400).json({ error: 'Missing data' });
 
     try {
-      console.log(`[Chat] Generating response...`);
-      
-      const systemInstruction = `You are a professional research assistant. 
-      Answer questions based on this research report:
-      
-      ${report}
-      
-      If the answer isn't in the report, use your general knowledge but clarify it's an extension of the report.`;
-
-      const interaction = await withRetry(async (attempt) => {
-        const modelName = "gemini-3.1-flash-lite";
-        console.log(`[Chat] Attempt ${attempt + 1} | Model: ${modelName}`);
-
+      const interaction = await withRetry(async () => {
         return await ai.interactions.create({
-          model: modelName,
+          model: "gemini-3.1-flash-lite",
           input: message,
-          system_instruction: systemInstruction
+          system_instruction: `Answer based on this report: ${report}`
         });
       });
-
       return res.json({ reply: interaction.output_text });
-
     } catch (error: any) {
-      console.error('[Chat] Error:', error.message);
-      const errorMsg = error.message?.toLowerCase() || '';
-      const isQuota = errorMsg.includes('429') || errorMsg.includes('quota');
-      return res.status(isQuota ? 429 : 500).json({ 
-        error: isQuota ? 'Rate limit exceeded' : 'Chat failed', 
-        message: isQuota ? 'ظرفیت چت تکمیل است. لطفا بعدا تلاش کنید.' : error.message 
-      });
+      return res.status(500).json({ error: error.message });
     }
   });
 
-  // Global error handler for API routes to prevent HTML error pages
-  app.use('/api', (err: any, req: any, res: any, next: any) => {
-    console.error('[API Global Error]:', err);
-    res.status(500).json({ 
-      error: 'Internal Server Error', 
-      message: 'یک خطای داخلی در سرور رخ داد. لطفاً دوباره تلاش کنید.' 
-    });
-  });
-
-  // Vite Middleware
+  // 4. Vite/Static Middleware (MUST BE LAST)
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -202,11 +131,11 @@ async function startServer() {
 
   const PORT = 3000;
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] Running at http://0.0.0.0:${PORT}`);
+    console.log(`[Server] Listening on port ${PORT}`);
   });
 }
 
 startServer().catch(err => {
-  console.error('[Server] Fatal Start Error:', err);
+  console.error('[Server] Critical start error:', err);
 });
 
