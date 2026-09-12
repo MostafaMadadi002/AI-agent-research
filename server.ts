@@ -38,7 +38,7 @@ const ai = new GoogleGenAI({
  * Helper function to handle retries with exponential backoff for AI calls.
  * Specifically targets 429 (Rate Limit) errors.
  */
-async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 8, initialDelay = 5000): Promise<T> {
+async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 10, initialDelay = 10000): Promise<T> {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -49,8 +49,8 @@ async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 8,
       
       if (isRateLimit && i < maxRetries - 1) {
         // Log the error more clearly for debugging
-        const delay = initialDelay * Math.pow(1.5, i); // Slightly slower growth but higher initial
-        console.warn(`[AI] Rate limit hit (${error.message}). Retrying in ${Math.round(delay)}ms... (Attempt ${i + 1}/${maxRetries})`);
+        const delay = initialDelay * Math.pow(1.5, i); 
+        console.warn(`[AI] Quota hit. Waiting ${Math.round(delay/1000)}s before attempt ${i + 2}...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -86,17 +86,17 @@ async function startServer() {
       Format the response beautifully in Markdown.`;
 
       const interaction = await withRetry((attempt) => {
-        // Multi-stage strategy:
-        // Attempt 0-1: Primary model + Search
-        // Attempt 2-3: Lite model + Search
-        // Attempt 4+: Lite model NO Search (to save quota/tokens)
+        // ULTRA-RESILIENT STRATEGY:
+        // Attempt 0-1: Lite Model + Search (Best chance for free tier)
+        // Attempt 2: Standard Model + Search
+        // Attempt 3+: Lite Model NO Search (Minimal token/quota usage)
         
-        let model = "gemini-3.8-flash";
-        const useSearch = attempt < 4;
+        let model = "gemini-3.1-flash-lite";
+        const useSearch = attempt < 3;
         
-        if (attempt >= 2) model = "gemini-3.1-flash-lite";
+        if (attempt === 2) model = "gemini-3.8-flash";
         
-        console.log(`[Research] Attempt ${attempt + 1} using model: ${model} (Search: ${useSearch ? 'ON' : 'OFF'})`);
+        console.log(`[Research] Attempt ${attempt + 1} | Model: ${model} | Search: ${useSearch ? 'ON' : 'OFF'}`);
         
         return ai.interactions.create({
           model,
@@ -115,7 +115,9 @@ async function startServer() {
       const isQuota = error.message?.includes('429') || error.message?.toLowerCase().includes('quota');
       res.status(isQuota ? 429 : 500).json({ 
         error: isQuota ? 'Rate limit exceeded' : 'Research failed', 
-        message: isQuota ? 'ظرفیت استفاده از هوش مصنوعی تکمیل شده است. لطفا چند دقیقه صبر کنید و دوباره تلاش کنید.' : error.message 
+        message: isQuota 
+          ? 'متأسفانه ظرفیت رایگان هوش مصنوعی در حال حاضر تکمیل است. لطفاً چند دقیقه دیگر تلاش کنید یا از بخش تنظیمات یک کلید API شخصی (Paid) اضافه کنید تا با محدودیت مواجه نشوید.' 
+          : error.message 
       });
     }
   });
@@ -138,10 +140,10 @@ async function startServer() {
       If the answer isn't in the report, mention it but provide general insight based on your knowledge.`;
 
       const interaction = await withRetry((attempt) => {
-        let model = "gemini-3.8-flash";
-        if (attempt >= 2) model = "gemini-3.1-flash-lite";
+        // Chat always uses Lite for maximum availability
+        const model = "gemini-3.1-flash-lite";
         
-        console.log(`[Chat] Attempt ${attempt + 1} using model: ${model}`);
+        console.log(`[Chat] Attempt ${attempt + 1} | Model: ${model}`);
 
         const chat = ai.chats.create({
           model,
@@ -157,7 +159,7 @@ async function startServer() {
       const isQuota = error.message?.includes('429') || error.message?.toLowerCase().includes('quota');
       res.status(isQuota ? 429 : 500).json({ 
         error: isQuota ? 'Rate limit exceeded' : 'Chat failed', 
-        message: isQuota ? 'هوش مصنوعی فعلاً مشغول است. لطفاً چند لحظه دیگر دوباره پیام دهید.' : error.message 
+        message: isQuota ? 'ظرفیت چت موقتاً تکمیل است. لطفاً چند لحظه دیگر دوباره پیام دهید.' : error.message 
       });
     }
   });
