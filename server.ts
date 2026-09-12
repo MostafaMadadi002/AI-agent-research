@@ -99,21 +99,19 @@ async function startServer() {
       
       Format the response beautifully in Markdown. Be thorough and professional.`;
 
-      const result = await withRetry(async (attempt) => {
-        // Use gemini-3.8-flash for best balance of speed and search quality
+      const interaction = await withRetry(async (attempt) => {
+        // Using the correct Interactions API pattern for @google/genai
         const modelName = "gemini-3.8-flash";
         console.log(`[Research] Attempt ${attempt + 1} | Model: ${modelName}`);
 
-        return await ai.models.generateContent({
+        return await ai.interactions.create({
           model: modelName,
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }]
-          }
+          input: prompt,
+          tools: [{ type: 'google_search' }]
         });
       });
 
-      const report = result.text || 'No report generated.';
+      const report = interaction.output_text || 'No report generated.';
       console.log('[Research] AI Agent completed.');
       
       return res.json({ success: true, report });
@@ -149,18 +147,18 @@ async function startServer() {
       
       If the answer isn't in the report, use your general knowledge but clarify it's an extension of the report.`;
 
-      const result = await withRetry(async (attempt) => {
+      const interaction = await withRetry(async (attempt) => {
         const modelName = "gemini-3.1-flash-lite";
         console.log(`[Chat] Attempt ${attempt + 1} | Model: ${modelName}`);
 
-        return await ai.models.generateContent({
+        return await ai.interactions.create({
           model: modelName,
-          contents: message,
-          config: { systemInstruction }
+          input: message,
+          system_instruction: systemInstruction
         });
       });
 
-      return res.json({ reply: result.text });
+      return res.json({ reply: interaction.output_text });
 
     } catch (error: any) {
       console.error('[Chat] Error:', error.message);
@@ -171,6 +169,15 @@ async function startServer() {
         message: isQuota ? 'ظرفیت چت تکمیل است. لطفا بعدا تلاش کنید.' : error.message 
       });
     }
+  });
+
+  // Global error handler for API routes to prevent HTML error pages
+  app.use('/api', (err: any, req: any, res: any, next: any) => {
+    console.error('[API Global Error]:', err);
+    res.status(500).json({ 
+      error: 'Internal Server Error', 
+      message: 'یک خطای داخلی در سرور رخ داد. لطفاً دوباره تلاش کنید.' 
+    });
   });
 
   // Vite Middleware
