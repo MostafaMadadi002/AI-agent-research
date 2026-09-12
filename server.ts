@@ -38,7 +38,7 @@ if (!getApps().length) {
 }
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY!,
+  apiKey: process.env.GEMINI_API_KEY || 'dummy-key',
   httpOptions: {
     headers: {
       'User-Agent': 'aistudio-build',
@@ -48,21 +48,23 @@ const ai = new GoogleGenAI({
 
 /**
  * Helper function to handle retries with exponential backoff for AI calls.
- * Specifically targets 429 (Rate Limit) errors.
  */
-async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 10, initialDelay = 10000): Promise<T> {
+async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 5, initialDelay = 5000): Promise<T> {
   let lastError: any;
   for (let i = 0; i < maxRetries; i++) {
     try {
+      if (!process.env.GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY is missing. Please add it to your Secrets.');
+      }
       return await fn(i);
     } catch (error: any) {
       lastError = error;
-      const isRateLimit = error.message?.includes('429') || error.status === 429 || error.message?.toLowerCase().includes('quota');
+      const errorMsg = error.message?.toLowerCase() || '';
+      const isRateLimit = errorMsg.includes('429') || error.status === 429 || errorMsg.includes('quota');
       
       if (isRateLimit && i < maxRetries - 1) {
-        // Log the error more clearly for debugging
-        const delay = initialDelay * Math.pow(1.5, i); 
-        console.warn(`[AI] Quota hit. Waiting ${Math.round(delay/1000)}s before attempt ${i + 2}...`);
+        const delay = initialDelay * Math.pow(2, i); 
+        console.warn(`[AI] Quota hit. Attempt ${i + 1} failed. Retrying in ${Math.round(delay/1000)}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -85,50 +87,46 @@ async function startServer() {
     }
 
     try {
-      console.log(`[Research] Starting AI Agent for: "${query}"`);
+      console.log(`[Research] Starting AI Agent for: "${query}" (Depth: ${depth})`);
       
-      const prompt = `Conduct a ${depth || 'standard'} research on the following topic: "${query}". 
-      Provide a comprehensive markdown report with:
-      1. Executive Summary
-      2. Key Findings
-      3. Detailed Analysis
-      4. Sources & Citations
-      5. Conclusion
+      const prompt = `Conduct a comprehensive ${depth || 'standard'} research on the following topic: "${query}". 
+      Provide a detailed markdown report with:
+      - Executive Summary
+      - Key Findings
+      - Detailed Analysis
+      - Future Outlook
+      - Sources & Citations
       
-      Format the response beautifully in Markdown.`;
+      Format the response beautifully in Markdown. Be thorough and professional.`;
 
-      const interaction = await withRetry((attempt) => {
-        // ULTRA-RESILIENT STRATEGY:
-        // Attempt 0-1: Lite Model + Search (Best chance for free tier)
-        // Attempt 2: Standard Model + Search
-        // Attempt 3+: Lite Model NO Search (Minimal token/quota usage)
-        
-        let model = "gemini-3.1-flash-lite";
-        const useSearch = attempt < 3;
-        
-        if (attempt === 2) model = "gemini-3.8-flash";
-        
-        console.log(`[Research] Attempt ${attempt + 1} | Model: ${model} | Search: ${useSearch ? 'ON' : 'OFF'}`);
-        
-        return ai.interactions.create({
-          model,
-          input: prompt,
-          tools: useSearch ? [{ type: 'google_search' }] : []
+      const result = await withRetry(async (attempt) => {
+        // Use gemini-3.8-flash for best balance of speed and search quality
+        const modelName = "gemini-3.8-flash";
+        console.log(`[Research] Attempt ${attempt + 1} | Model: ${modelName}`);
+
+        return await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }]
+          }
         });
       });
 
-      const report = interaction.output_text || 'No report generated.';
+      const report = result.text || 'No report generated.';
       console.log('[Research] AI Agent completed.');
       
-      res.json({ success: true, report });
+      return res.json({ success: true, report });
 
     } catch (error: any) {
       console.error('[Research] Error:', error.message);
-      const isQuota = error.message?.includes('429') || error.message?.toLowerCase().includes('quota');
-      res.status(isQuota ? 429 : 500).json({ 
+      const errorMsg = error.message?.toLowerCase() || '';
+      const isQuota = errorMsg.includes('429') || errorMsg.includes('quota');
+      
+      return res.status(isQuota ? 429 : 500).json({ 
         error: isQuota ? 'Rate limit exceeded' : 'Research failed', 
         message: isQuota 
-          ? 'متأسفانه ظرفیت رایگان هوش مصنوعی در حال حاضر تکمیل است. لطفاً چند دقیقه دیگر تلاش کنید یا از بخش تنظیمات یک کلید API شخصی (Paid) اضافه کنید تا با محدودیت مواجه نشوید.' 
+          ? 'ظرفیت رایگان هوش مصنوعی تکمیل است. لطفاً کمی صبر کنید یا از کلید شخصی استفاده کنید.' 
           : error.message 
       });
     }
@@ -149,29 +147,28 @@ async function startServer() {
       
       ${report}
       
-      If the answer isn't in the report, mention it but provide general insight based on your knowledge.`;
+      If the answer isn't in the report, use your general knowledge but clarify it's an extension of the report.`;
 
-      const interaction = await withRetry((attempt) => {
-        // Chat always uses Lite for maximum availability
-        const model = "gemini-3.1-flash-lite";
-        
-        console.log(`[Chat] Attempt ${attempt + 1} | Model: ${model}`);
+      const result = await withRetry(async (attempt) => {
+        const modelName = "gemini-3.1-flash-lite";
+        console.log(`[Chat] Attempt ${attempt + 1} | Model: ${modelName}`);
 
-        const chat = ai.chats.create({
-          model,
+        return await ai.models.generateContent({
+          model: modelName,
+          contents: message,
           config: { systemInstruction }
         });
-        return chat.sendMessage(message);
       });
 
-      res.json({ reply: interaction.text });
+      return res.json({ reply: result.text });
 
     } catch (error: any) {
       console.error('[Chat] Error:', error.message);
-      const isQuota = error.message?.includes('429') || error.message?.toLowerCase().includes('quota');
-      res.status(isQuota ? 429 : 500).json({ 
+      const errorMsg = error.message?.toLowerCase() || '';
+      const isQuota = errorMsg.includes('429') || errorMsg.includes('quota');
+      return res.status(isQuota ? 429 : 500).json({ 
         error: isQuota ? 'Rate limit exceeded' : 'Chat failed', 
-        message: isQuota ? 'ظرفیت چت موقتاً تکمیل است. لطفاً چند لحظه دیگر دوباره پیام دهید.' : error.message 
+        message: isQuota ? 'ظرفیت چت تکمیل است. لطفا بعدا تلاش کنید.' : error.message 
       });
     }
   });

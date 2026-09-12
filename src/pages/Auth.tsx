@@ -6,12 +6,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 
 export default function AuthPage() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail, user, isConfigured } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, verifyOtp, user, isConfigured } = useAuth();
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [verificationSent, setVerificationSent] = useState(false);
@@ -36,11 +37,26 @@ export default function AuthPage() {
         if (!name.trim()) throw new Error("Name is required");
         await signUpWithEmail(email, password, name);
         setVerificationSent(true);
-        toast.success("Registration successful! Please check your email for verification.");
+        toast.success("Registration successful! Please check your email for the verification code.");
       }
     } catch (error: any) {
       console.error('Auth Error:', error);
       toast.error(error.message || "Authentication failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await verifyOtp(email, otpCode);
+      toast.success("Account verified successfully!");
+      navigate('/');
+    } catch (error: any) {
+      console.error('OTP Error:', error);
+      toast.error(error.message || "Verification failed. Please check the code.");
     } finally {
       setLoading(false);
     }
@@ -80,24 +96,45 @@ export default function AuthPage() {
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-center py-8"
+                className="text-center py-4"
               >
                 <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-6">
                   <Mail size={32} className="text-green-500" />
                 </div>
-                <h2 className="text-2xl font-bold text-white mb-4">Check your email</h2>
+                <h2 className="text-2xl font-bold text-white mb-4">Verify your email</h2>
                 <p className="text-slate-400 mb-8">
-                  We've sent a verification link to <span className="text-white font-medium">{email}</span>. 
-                  Please click the link to activate your account.
+                  We've sent a 6-digit code to <span className="text-white font-medium">{email}</span>.
                 </p>
+
+                <form onSubmit={handleVerifyOtp} className="space-y-4 mb-8">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Enter 6-digit code"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-center text-xl tracking-[0.5em] font-mono focus:outline-none focus:border-purple-500/50 transition-all"
+                      maxLength={6}
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-xl hover:opacity-90 transition-all active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 size={20} className="animate-spin" /> : "Verify Account"}
+                  </button>
+                </form>
+
                 <button
                   onClick={() => {
                     setVerificationSent(false);
                     setIsLogin(true);
                   }}
-                  className="text-purple-400 hover:text-purple-300 font-bold transition-colors"
+                  className="text-slate-500 hover:text-white text-sm transition-colors"
                 >
-                  Return to Sign In
+                  Back to Sign In
                 </button>
               </motion.div>
             ) : (

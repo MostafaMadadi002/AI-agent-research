@@ -9,6 +9,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
+  verifyOtp: (email: string, token: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -73,6 +74,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
   };
 
+  const verifyOtp = async (email: string, token: string) => {
+    if (!isSupabaseConfigured) throw new Error("Supabase is not configured yet.");
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'signup',
+    });
+    if (error) throw error;
+  };
+
   const logout = async () => {
     if (!isSupabaseConfigured) {
       setUser(null);
@@ -83,7 +94,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isConfigured: isSupabaseConfigured, signInWithGoogle, signInWithEmail, signUpWithEmail, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      isConfigured: isSupabaseConfigured, 
+      signInWithGoogle, 
+      signInWithEmail, 
+      signUpWithEmail, 
+      verifyOtp,
+      logout 
+    }}>
       {!loading && children}
     </AuthContext.Provider>
   );
