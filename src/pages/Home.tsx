@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Sparkles, Mic, Command } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
 
@@ -11,7 +10,7 @@ export default function Home() {
   const [query, setQuery] = useState('');
   const [depth, setDepth] = useState<'quick' | 'standard' | 'deep'>('standard');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { user, signInWithGoogle } = useAuth();
+  const { user, isConfigured } = useAuth();
   const navigate = useNavigate();
 
   const suggestionChips = [
@@ -27,6 +26,11 @@ export default function Home() {
     e.preventDefault();
     if (!query.trim()) return;
 
+    if (!isConfigured) {
+      toast.error("Supabase is not configured yet.");
+      return;
+    }
+
     if (!user) {
       toast.error("You must be signed in to conduct research.");
       navigate('/auth');
@@ -34,22 +38,24 @@ export default function Home() {
     }
 
     setIsSubmitting(true);
-    const path = 'researches';
     try {
-      const docRef = await addDoc(collection(db, path), {
-        userId: user.uid,
+      const { data, error } = await supabase.from('researches').insert({
+        user_id: user.id,
         title: query.trim().substring(0, 50),
         query: query.trim(),
         depth,
         status: 'pending',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }).select().single();
+
+      if (error) throw error;
 
       // Navigate to active research view
-      navigate(`/research/${docRef.id}`);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      navigate(`/research/${data.id}`);
+    } catch (error: any) {
+      console.error('Error adding research:', error);
+      toast.error(error.message || "Failed to start research");
     } finally {
       setIsSubmitting(false);
     }

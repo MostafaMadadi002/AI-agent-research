@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, History, Settings, Search, PlusCircle, LogOut, BrainCircuit } from 'lucide-react';
+import { Home, History, Settings, Search, PlusCircle, LogOut, BrainCircuit, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -17,6 +17,9 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
     { name: 'History', icon: History, path: '/history' },
     { name: 'Settings', icon: Settings, path: '/settings' },
   ];
+
+  const fullName = user?.user_metadata?.full_name || 'User';
+  const avatarUrl = user?.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}`;
 
   return (
     <aside className="w-full lg:w-64 border-r border-white/5 bg-black/60 lg:bg-black/20 backdrop-blur-3xl lg:backdrop-blur-xl flex flex-col h-full shrink-0">
@@ -66,12 +69,12 @@ export default function Sidebar({ onClose }: { onClose?: () => void }) {
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-3 px-2">
               <img 
-                src={user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'User')}`} 
+                src={avatarUrl} 
                 alt="Avatar" 
                 className="w-8 h-8 rounded-full border border-white/10"
               />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{user.displayName}</p>
+                <p className="text-sm font-medium text-white truncate">{fullName}</p>
                 <p className="text-xs text-slate-500 truncate">{user.email}</p>
               </div>
             </div>

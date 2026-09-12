@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, query, where, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Search, Filter, Trash2, ExternalLink, Calendar, FileText, Clock, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -13,7 +12,7 @@ interface Research {
   query: string;
   depth: string;
   status: string;
-  createdAt: any;
+  created_at: string;
 }
 
 export default function History() {
@@ -24,17 +23,45 @@ export default function History() {
   useEffect(() => {
     if (!user) return;
 
-    const q = query(
-      collection(db, 'researches'),
-      where('userId', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
+    const fetchResearches = async () => {
+      const { data, error } = await supabase
+        .from('researches')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching history:', error);
+        toast.error("Failed to load history");
+      } else {
+        setResearches(data || []);
+      }
+    };
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setResearches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Research)));
-    });
+    fetchResearches();
 
-    return () => unsubscribe();
+    // Subscribe to changes
+    const channel = supabase
+      .channel('researches_changes')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'researches',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setResearches(prev => [payload.new as Research, ...prev]);
+        } else if (payload.eventType === 'DELETE') {
+          setResearches(prev => prev.filter(r => r.id !== payload.old.id));
+        } else if (payload.eventType === 'UPDATE') {
+          setResearches(prev => prev.map(r => r.id === payload.new.id ? payload.new as Research : r));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -43,7 +70,8 @@ export default function History() {
     if (!window.confirm("Are you sure you want to delete this research?")) return;
 
     try {
-      await deleteDoc(doc(db, 'researches', id));
+      const { error } = await supabase.from('researches').delete().eq('id', id);
+      if (error) throw error;
       toast.success("Research deleted");
     } catch (error) {
       toast.error("Failed to delete");
@@ -129,7 +157,7 @@ export default function History() {
                       </span>
                       <span className="text-slate-600 flex items-center gap-1">
                         <Calendar size={10} />
-                        {r.createdAt?.toDate().toLocaleDateString()}
+                        {new Date(r.created_at).toLocaleDateString()}
                       </span>
                     </div>
                     <ExternalLink size={14} className="text-slate-600 group-hover:text-white transition-all" />

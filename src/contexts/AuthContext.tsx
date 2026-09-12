@@ -1,20 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  onAuthStateChanged, 
-  User, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signOut,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  updateProfile
-} from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { User } from '@supabase/supabase-js';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  isConfigured: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
@@ -28,82 +19,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // Ensure profile exists
-        const profileRef = doc(db, 'profiles', user.uid);
-        const profileSnap = await getDoc(profileRef);
-        
-        if (!profileSnap.exists()) {
-          await setDoc(profileRef, {
-            email: user.email,
-            fullName: user.displayName || '',
-            avatarUrl: user.photoURL || '',
-            createdAt: new Date().toISOString()
-          });
-        }
-        setUser(user);
-      } else {
-        setUser(null);
-      }
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      return;
+    }
+
+    // Initial session check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      if (error.code === 'auth/popup-closed-by-user') {
-        console.log('User closed the auth popup.');
-        return;
+    if (!isSupabaseConfigured) throw new Error("Supabase is not configured yet.");
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin
       }
-      console.error('Auth Error:', error);
-      throw error;
-    }
+    });
+    if (error) throw error;
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
-    try {
-      await signInWithEmailAndPassword(auth, email, pass);
-    } catch (error) {
-      console.error('Sign In Error:', error);
-      throw error;
-    }
+    if (!isSupabaseConfigured) throw new Error("Supabase is not configured yet.");
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password: pass,
+    });
+    if (error) throw error;
   };
 
   const signUpWithEmail = async (email: string, pass: string, name: string) => {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-      await updateProfile(userCredential.user, { displayName: name });
-      
-      // Ensure profile exists immediately
-      await setDoc(doc(db, 'profiles', userCredential.user.uid), {
-        email,
-        fullName: name,
-        avatarUrl: '',
-        createdAt: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Sign Up Error:', error);
-      throw error;
-    }
+    if (!isSupabaseConfigured) throw new Error("Supabase is not configured yet.");
+    const { error } = await supabase.auth.signUp({
+      email,
+      password: pass,
+      options: {
+        data: {
+          full_name: name,
+        }
+      }
+    });
+    if (error) throw error;
   };
 
   const logout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error('Logout Error:', error);
-      throw error;
+    if (!isSupabaseConfigured) {
+      setUser(null);
+      return;
     }
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, logout }}>
+    <AuthContext.Provider value={{ user, loading, isConfigured: isSupabaseConfigured, signInWithGoogle, signInWithEmail, signUpWithEmail, logout }}>
       {!loading && children}
     </AuthContext.Provider>
   );

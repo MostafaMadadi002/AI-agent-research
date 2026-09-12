@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp, where, updateDoc } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   Loader2, CheckCircle2, AlertCircle, Copy, Download, Share2, 
@@ -20,14 +19,14 @@ interface ResearchData {
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   report?: string;
   summary?: string;
-  createdAt: any;
+  created_at: string;
 }
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  createdAt: any;
+  created_at: string;
 }
 
 export default function ResearchDetail() {
@@ -44,47 +43,78 @@ export default function ResearchDetail() {
   useEffect(() => {
     if (!id || !user) return;
 
-    const unsubscribeResearch = onSnapshot(doc(db, 'researches', id), (doc) => {
-      if (doc.exists()) {
-        const data = { id: doc.id, ...doc.data() } as ResearchData;
-        setResearch(data);
-        
-        if (data.status === 'completed' && research?.status !== 'completed') {
-          confetti({
-            particleCount: 150,
-            spread: 70,
-            origin: { y: 0.6 },
-            colors: ['#a855f7', '#3b82f6', '#06b6d4']
-          });
-          toast.success("Research completed successfully!");
-        }
-      } else {
+    const fetchInitialData = async () => {
+      // Fetch research
+      const { data: researchData, error: researchError } = await supabase
+        .from('researches')
+        .select('*')
+        .eq('id', id)
+        .single();
+      
+      if (researchError) {
         toast.error("Research not found");
         navigate('/history');
+        return;
       }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, `researches/${id}`);
-    });
+      setResearch(researchData);
 
-    const messagesPath = `researches/${id}/messages`;
-    const unsubscribeMessages = onSnapshot(
-      query(
-        collection(db, messagesPath), 
-        where('userId', '==', user.uid),
-        orderBy('createdAt', 'asc')
-      ),
-      (snapshot) => {
-        setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
-      }, (error) => {
-        handleFirestoreError(error, OperationType.LIST, messagesPath);
+      // Fetch messages
+      const { data: messagesData, error: messagesError } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('research_id', id)
+        .order('created_at', { ascending: true });
+      
+      if (!messagesError) {
+        setMessages(messagesData || []);
       }
-    );
+    };
+
+    fetchInitialData();
+
+    // Subscribe to research updates
+    const researchChannel = supabase
+      .channel(`research_${id}`)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'researches',
+        filter: `id=eq.${id}`
+      }, (payload) => {
+        const newData = payload.new as ResearchData;
+        setResearch(prev => {
+          if (newData.status === 'completed' && prev?.status !== 'completed') {
+            confetti({
+              particleCount: 150,
+              spread: 70,
+              origin: { y: 0.6 },
+              colors: ['#a855f7', '#3b82f6', '#06b6d4']
+            });
+            toast.success("Research completed successfully!");
+          }
+          return newData;
+        });
+      })
+      .subscribe();
+
+    // Subscribe to messages updates
+    const messagesChannel = supabase
+      .channel(`messages_${id}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages',
+        filter: `research_id=eq.${id}`
+      }, (payload) => {
+        setMessages(prev => [...prev, payload.new as Message]);
+      })
+      .subscribe();
 
     return () => {
-      unsubscribeResearch();
-      unsubscribeMessages();
+      supabase.removeChannel(researchChannel);
+      supabase.removeChannel(messagesChannel);
     };
-  }, [id, user, navigate, research?.status]);
+  }, [id, user, navigate]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -101,14 +131,12 @@ export default function ResearchDetail() {
     if (!id || !user || !research) return;
     setIsResearching(true);
     
-    const docRef = doc(db, 'researches', id);
-    
     try {
-      // 1. Set status to in_progress locally from the client
-      await updateDoc(docRef, {
+      // 1. Set status to in_progress
+      await supabase.from('researches').update({
         status: 'in_progress',
-        updatedAt: serverTimestamp()
-      });
+        updated_at: new Date().toISOString()
+      }).eq('id', id);
 
       const response = await fetch('/api/research', {
         method: 'POST',
@@ -126,13 +154,13 @@ export default function ResearchDetail() {
 
       const data = await response.json();
       
-      // 2. Save the report to Firestore from the client
-      await updateDoc(docRef, {
+      // 2. Save the report
+      await supabase.from('researches').update({
         report: data.report,
         status: 'completed',
         summary: data.report.substring(0, 1000).replace(/[#*`]/g, '') + '...',
-        updatedAt: serverTimestamp()
-      });
+        updated_at: new Date().toISOString()
+      }).eq('id', id);
 
     } catch (error: any) {
       console.error('Research error:', error);
@@ -140,10 +168,10 @@ export default function ResearchDetail() {
       
       // Mark as failed
       try {
-        await updateDoc(docRef, {
+        await supabase.from('researches').update({
           status: 'failed',
-          updatedAt: serverTimestamp()
-        });
+          updated_at: new Date().toISOString()
+        }).eq('id', id);
       } catch (e) {
         console.error('Failed to set error status:', e);
       }
@@ -160,14 +188,14 @@ export default function ResearchDetail() {
     setNewMessage('');
     setIsChatting(true);
 
-    const messagesPath = `researches/${id}/messages`;
     try {
       // Add user message
-      await addDoc(collection(db, messagesPath), {
-        userId: user.uid,
+      await supabase.from('messages').insert({
+        research_id: id,
+        user_id: user.id,
         role: 'user',
         content: userMessage,
-        createdAt: serverTimestamp()
+        created_at: new Date().toISOString()
       });
 
       // Call chat API
@@ -188,11 +216,12 @@ export default function ResearchDetail() {
       const data = await response.json();
 
       // Add assistant message
-      await addDoc(collection(db, messagesPath), {
-        userId: user.uid,
+      await supabase.from('messages').insert({
+        research_id: id,
+        user_id: user.id,
         role: 'assistant',
         content: data.reply,
-        createdAt: serverTimestamp()
+        created_at: new Date().toISOString()
       });
     } catch (error: any) {
       console.error('Chat error:', error);
@@ -228,7 +257,7 @@ export default function ResearchDetail() {
                 </span>
                 <span className="text-slate-500 text-xs">•</span>
                 <span className="text-slate-500 text-xs">
-                  {research.createdAt?.toDate().toLocaleDateString()}
+                  {new Date(research.created_at).toLocaleDateString()}
                 </span>
               </div>
               <h1 className="text-2xl font-bold text-white leading-tight">{research.title}</h1>

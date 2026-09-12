@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../lib/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { supabase } from '../lib/supabase';
 import { User, Mail, Bell, Shield, Moon, Globe, Save, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
@@ -20,9 +19,21 @@ export default function Settings() {
     if (!user) return;
 
     const fetchProfile = async () => {
-      const docSnap = await getDoc(doc(db, 'profiles', user.uid));
-      if (docSnap.exists()) {
-        setProfile(docSnap.data() as any);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (error) {
+        // Fallback to user metadata if profile table entry doesn't exist
+        setProfile({
+          fullName: user.user_metadata?.full_name || '',
+          email: user.email || '',
+          avatarUrl: user.user_metadata?.avatar_url || ''
+        });
+      } else if (data) {
+        setProfile(data);
       }
       setLoading(false);
     };
@@ -34,10 +45,15 @@ export default function Settings() {
     if (!user) return;
     setSaving(true);
     try {
-      await updateDoc(doc(db, 'profiles', user.uid), {
-        fullName: profile.fullName,
-        updatedAt: new Date().toISOString()
-      });
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          fullName: profile.fullName,
+          updated_at: new Date().toISOString()
+        });
+      
+      if (error) throw error;
       toast.success("Profile updated successfully");
     } catch (error) {
       toast.error("Failed to update profile");
