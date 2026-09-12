@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp, where, updateDoc } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -98,27 +98,55 @@ export default function ResearchDetail() {
   }, [research?.status]);
 
   const triggerResearch = async () => {
-    if (!id || !user) return;
+    if (!id || !user || !research) return;
     setIsResearching(true);
+    
+    const docRef = doc(db, 'researches', id);
+    
     try {
+      // 1. Set status to in_progress locally from the client
+      await updateDoc(docRef, {
+        status: 'in_progress',
+        updatedAt: serverTimestamp()
+      });
+
       const response = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          query: research?.query,
-          depth: research?.depth,
-          researchId: id,
-          userId: user.uid
+          query: research.query,
+          depth: research.depth
         })
       });
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Research failed');
+        throw new Error(errorData.message || errorData.error || 'Research failed');
       }
+
+      const data = await response.json();
+      
+      // 2. Save the report to Firestore from the client
+      await updateDoc(docRef, {
+        report: data.report,
+        status: 'completed',
+        summary: data.report.substring(0, 1000).replace(/[#*`]/g, '') + '...',
+        updatedAt: serverTimestamp()
+      });
+
     } catch (error: any) {
       console.error('Research error:', error);
       toast.error(`AI Research error: ${error.message || 'Something went wrong'}`);
+      
+      // Mark as failed
+      try {
+        await updateDoc(docRef, {
+          status: 'failed',
+          updatedAt: serverTimestamp()
+        });
+      } catch (e) {
+        console.error('Failed to set error status:', e);
+      }
     } finally {
       setIsResearching(false);
     }
@@ -126,7 +154,7 @@ export default function ResearchDetail() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || isChatting || !id || !user) return;
+    if (!newMessage.trim() || isChatting || !id || !user || !research?.report) return;
 
     const userMessage = newMessage.trim();
     setNewMessage('');
@@ -147,13 +175,16 @@ export default function ResearchDetail() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          researchId: id,
           message: userMessage,
-          history: messages.map(m => ({ role: m.role, content: m.content }))
+          report: research.report
         })
       });
 
-      if (!response.ok) throw new Error('Chat failed');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Chat failed');
+      }
+      
       const data = await response.json();
 
       // Add assistant message
@@ -163,8 +194,9 @@ export default function ResearchDetail() {
         content: data.reply,
         createdAt: serverTimestamp()
       });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, messagesPath);
+    } catch (error: any) {
+      console.error('Chat error:', error);
+      toast.error(`Chat error: ${error.message || 'Something went wrong'}`);
     } finally {
       setIsChatting(false);
     }
