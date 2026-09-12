@@ -11,7 +11,19 @@ import firebaseConfig from './firebase-applet-config.json';
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Fix for CJS/ESM compatibility
+let currentDirname = process.cwd();
+try {
+  if (typeof fileURLToPath === 'function' && import.meta.url) {
+    currentDirname = path.dirname(fileURLToPath(import.meta.url));
+  }
+} catch (e) {
+  // Fallback to __dirname in CJS if it exists
+  if (typeof __dirname !== 'undefined') {
+    currentDirname = __dirname;
+  }
+}
+const finalDirname = currentDirname;
 
 // Initialize Firebase Admin
 // We keep it for future use, but primary state management moves to frontend

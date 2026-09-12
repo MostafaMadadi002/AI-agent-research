@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { isSupabaseConfigured } from './lib/supabase';
 import Home from './pages/Home';
 import AuthPage from './pages/Auth';
 import ResearchDetail from './pages/ResearchDetail';
@@ -53,7 +54,7 @@ function AppRoutes() {
 
 export default function App() {
   useEffect(() => {
-    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+    if (!isSupabaseConfigured) {
       toast.error(
         "تنظیمات Supabase یافت نشد! لطفاً VITE_SUPABASE_URL و VITE_SUPABASE_ANON_KEY را در بخش Secrets اضافه کنید تا برنامه به درستی کار کند.",
         { duration: 10000, position: 'top-center' }
