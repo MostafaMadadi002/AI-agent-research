@@ -58,6 +58,12 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // REQUEST LOGGER - Debugging 404s
+  app.use((req, res, next) => {
+    console.log(`[Server] ${req.method} ${req.url}`);
+    next();
+  });
+
   console.log('[Server] Initializing API routes...');
 
   // 1. Health check
@@ -68,15 +74,20 @@ async function startServer() {
   // 2. Research API
   app.post('/api/research', async (req, res) => {
     const { query, depth } = req.body;
-    if (!query) return res.status(400).json({ error: 'Missing query' });
+    console.log(`[API] Research received: "${query}"`);
+    
+    if (!query) {
+      console.warn('[API] Missing query in request body');
+      return res.status(400).json({ error: 'Missing query' });
+    }
 
     try {
-      console.log(`[Research] Request received: "${query}"`);
       const prompt = `Conduct a comprehensive ${depth || 'standard'} research on the following topic: "${query}". 
       Provide a detailed markdown report with Executive Summary, Key Findings, Detailed Analysis, and Sources.
       Format the response beautifully in Markdown.`;
 
       const interaction = await withRetry(async (attempt) => {
+        console.log(`[AI] Calling Gemini for research (Attempt ${attempt + 1})...`);
         return await ai.interactions.create({
           model: "gemini-3.8-flash",
           input: prompt,
@@ -84,13 +95,18 @@ async function startServer() {
         });
       });
 
-      return res.json({ success: true, report: interaction.output_text || 'No report generated.' });
+      console.log('[AI] Research completed successfully');
+      return res.json({ 
+        success: true, 
+        report: interaction.output_text || 'No report generated.' 
+      });
+
     } catch (error: any) {
-      console.error('[Research] Error:', error.message);
+      console.error('[API] Research Error:', error.message);
       const isQuota = error.message?.toLowerCase().includes('quota') || error.message?.includes('429');
       return res.status(isQuota ? 429 : 500).json({ 
-        error: isQuota ? 'Rate limit' : 'Failed', 
-        message: isQuota ? 'ظرفیت هوش مصنوعی تکمیل است.' : error.message 
+        error: isQuota ? 'Rate limit' : 'Internal Server Error', 
+        message: isQuota ? 'ظرفیت هوش مصنوعی موقتا تکمیل است.' : error.message 
       });
     }
   });
@@ -98,7 +114,11 @@ async function startServer() {
   // 3. Chat API
   app.post('/api/chat', async (req, res) => {
     const { message, report } = req.body;
-    if (!message || !report) return res.status(400).json({ error: 'Missing data' });
+    console.log('[API] Chat request received');
+
+    if (!message || !report) {
+      return res.status(400).json({ error: 'Missing data' });
+    }
 
     try {
       const interaction = await withRetry(async () => {
@@ -110,8 +130,15 @@ async function startServer() {
       });
       return res.json({ reply: interaction.output_text });
     } catch (error: any) {
+      console.error('[API] Chat Error:', error.message);
       return res.status(500).json({ error: error.message });
     }
+  });
+
+  // API 404 Handler - If it reaches here, the path is wrong
+  app.use('/api/*', (req, res) => {
+    console.warn(`[API] 404 Not Found: ${req.method} ${req.originalUrl}`);
+    res.status(404).json({ error: 'API route not found' });
   });
 
   // 4. Vite/Static Middleware (MUST BE LAST)
