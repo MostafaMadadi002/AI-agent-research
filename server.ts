@@ -12,14 +12,16 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+import firebaseConfig from './firebase-applet-config.json';
+
 // Initialize Firebase Admin
 if (!getApps().length) {
   initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID || 'dev-robot-0h7sp'
+    projectId: firebaseConfig.projectId,
   });
 }
 
-const firestore = getFirestore();
+const firestore = getFirestore(firebaseConfig.firestoreDatabaseId);
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -59,15 +61,13 @@ async function startServer() {
       
       Be thorough and ensure all information is accurate and well-structured.`;
 
-      // Use any to bypass type issues with 'tools' in this SDK version
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: prompt,
-        tools: [{ googleSearch: {} }],
-        toolConfig: { includeServerSideToolInvocations: true }
-      } as any);
+      const interaction = await ai.interactions.create({
+        model: "gemini-3.8-flash",
+        input: prompt,
+        tools: [{ type: 'google_search' }]
+      });
 
-      const report = response.text || '';
+      const report = interaction.output_text || '';
       
       await firestore.collection('researches').doc(researchId).update({
         report,
