@@ -21,7 +21,7 @@ try {
 const finalDirname = currentDirname;
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || 'dummy-key',
+  apiKey: process.env.GEMINI_API_KEY || 'AIzaSyC4eUNLAG9iKkjSov_jcxqA_fvp3xeu0Ok',
   httpOptions: {
     headers: {
       'User-Agent': 'aistudio-build',
@@ -31,9 +31,11 @@ const ai = new GoogleGenAI({
 
 async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 5, initialDelay = 5000): Promise<T> {
   let lastError: any;
+  const apiKey = process.env.GEMINI_API_KEY || 'AIzaSyC4eUNLAG9iKkjSov_jcxqA_fvp3xeu0Ok';
+  
   for (let i = 0; i < maxRetries; i++) {
     try {
-      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'dummy-key') {
+      if (!apiKey || apiKey === 'dummy-key') {
         throw new Error('GEMINI_API_KEY is missing. Please add it to your Secrets in Settings.');
       }
       return await fn(i);
@@ -56,28 +58,29 @@ async function withRetry<T>(fn: (attempt: number) => Promise<T>, maxRetries = 5,
 
 async function startServer() {
   const app = express();
-  app.use(express.json());
-
-  // REQUEST LOGGER - Debugging 404s
+  
+  // LOG ALL REQUESTS - CRITICAL FOR 404 DEBUGGING
   app.use((req, res, next) => {
-    console.log(`[Server] ${req.method} ${req.url}`);
+    console.log(`[Incoming Request] ${req.method} ${req.url}`);
     next();
   });
 
-  console.log('[Server] Initializing API routes...');
+  app.use(express.json());
 
-  // 1. Health check
+  console.log('[Server] Mounting API routes...');
+
+  // 1. Health check - test if routing works at all
   app.get('/api/health', (req, res) => {
+    console.log('[API] Health check hit');
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  // 2. Research API
+  // 2. Research API - POST /api/research
   app.post('/api/research', async (req, res) => {
     const { query, depth } = req.body;
-    console.log(`[API] Research received: "${query}"`);
+    console.log(`[API] Research Request: "${query}" (Depth: ${depth})`);
     
     if (!query) {
-      console.warn('[API] Missing query in request body');
       return res.status(400).json({ error: 'Missing query' });
     }
 
@@ -87,7 +90,7 @@ async function startServer() {
       Format the response beautifully in Markdown.`;
 
       const interaction = await withRetry(async (attempt) => {
-        console.log(`[AI] Calling Gemini for research (Attempt ${attempt + 1})...`);
+        console.log(`[AI] Calling Gemini (Attempt ${attempt + 1})...`);
         return await ai.interactions.create({
           model: "gemini-3.8-flash",
           input: prompt,
@@ -95,14 +98,14 @@ async function startServer() {
         });
       });
 
-      console.log('[AI] Research completed successfully');
+      console.log('[AI] Research success');
       return res.json({ 
         success: true, 
         report: interaction.output_text || 'No report generated.' 
       });
 
     } catch (error: any) {
-      console.error('[API] Research Error:', error.message);
+      console.error('[API Error] Research:', error.message);
       const isQuota = error.message?.toLowerCase().includes('quota') || error.message?.includes('429');
       return res.status(isQuota ? 429 : 500).json({ 
         error: isQuota ? 'Rate limit' : 'Internal Server Error', 
@@ -111,10 +114,10 @@ async function startServer() {
     }
   });
 
-  // 3. Chat API
+  // 3. Chat API - POST /api/chat
   app.post('/api/chat', async (req, res) => {
     const { message, report } = req.body;
-    console.log('[API] Chat request received');
+    console.log('[API] Chat Request');
 
     if (!message || !report) {
       return res.status(400).json({ error: 'Missing data' });
@@ -130,18 +133,18 @@ async function startServer() {
       });
       return res.json({ reply: interaction.output_text });
     } catch (error: any) {
-      console.error('[API] Chat Error:', error.message);
+      console.error('[API Error] Chat:', error.message);
       return res.status(500).json({ error: error.message });
     }
   });
 
-  // API 404 Handler - If it reaches here, the path is wrong
+  // Explicit 404 for API to distinguish from frontend 404
   app.use('/api/*', (req, res) => {
-    console.warn(`[API] 404 Not Found: ${req.method} ${req.originalUrl}`);
-    res.status(404).json({ error: 'API route not found' });
+    console.warn(`[API 404] No route for ${req.method} ${req.url}`);
+    res.status(404).json({ error: 'API endpoint not found' });
   });
 
-  // 4. Vite/Static Middleware (MUST BE LAST)
+  // 4. Vite/Static Middleware - MUST BE LAST
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -138,8 +138,10 @@ export default function ResearchDetail() {
         updated_at: new Date().toISOString()
       }).eq('id', id);
 
-      console.log('--- Research Start ---');
-      const response = await fetch('/api/research', {
+      const apiUrl = '/api/research';
+      console.log(`[Frontend] Calling AI Research at: ${apiUrl}`);
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json' 
@@ -153,7 +155,7 @@ export default function ResearchDetail() {
       // Check status FIRST
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ AI Error Status:', response.status);
+        console.error(`❌ AI Error Status: ${response.status} at ${apiUrl}`);
         console.error('❌ AI Error Body:', errorText);
         throw new Error(`AI request failed (${response.status}): ${errorText.slice(0, 200)}`);
       }
@@ -163,7 +165,7 @@ export default function ResearchDetail() {
       if (!contentType?.includes('application/json')) {
         const rawText = await response.text();
         console.error('❌ Non-JSON response received:', rawText.slice(0, 500));
-        throw new Error('Server returned HTML instead of JSON. Check the endpoint URL.');
+        throw new Error('Server returned HTML instead of JSON. Check if the backend server is running on port 3000.');
       }
 
       const data = await response.json();
