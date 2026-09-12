@@ -1,0 +1,6 @@
+{
+  "name": "ResearchMind",
+  "description": "Modern AI-powered Research Agent that helps users conduct deep research on any topic using AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

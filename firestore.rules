@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ---------------------------------------------------------
+    // GLOBAL HELPERS
+    // ---------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // ---------------------------------------------------------
+    // VALIDATION BLUEPRINTS
+    // ---------------------------------------------------------
+    function isValidResearch(data) {
+      return data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 500
+        && data.query is string && data.query.size() <= 2000
+        && data.depth in ['quick', 'standard', 'deep']
+        && data.status in ['pending', 'in_progress', 'completed', 'failed']
+        && (data.report == null || data.report is string)
+        && (data.summary == null || data.summary is string && data.summary.size() <= 5000);
+    }
+
+    function isValidSource(data) {
+      return data.title is string && data.title.size() <= 1000
+        && data.url is string && data.url.size() <= 2048
+        && (data.snippet == null || data.snippet is string && data.snippet.size() <= 5000)
+        && (data.favicon == null || data.favicon is string);
+    }
+
+    function isValidMessage(data) {
+      return data.role in ['user', 'assistant']
+        && data.content is string && data.content.size() <= 10000;
+    }
+
+    function isValidProfile(data) {
+      return data.email is string && data.email.size() <= 256
+        && (data.fullName == null || data.fullName is string && data.fullName.size() <= 200)
+        && (data.avatarUrl == null || data.avatarUrl is string);
+    }
+
+    // ---------------------------------------------------------
+    // SECURITY RULES
+    // ---------------------------------------------------------
+    
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Researches
+    match /researches/{researchId} {
+      allow get: if isOwner(existing().userId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidResearch(incoming());
+      allow update: if isOwner(existing().userId) && isValidResearch(incoming());
+      allow delete: if isOwner(existing().userId);
+
+      // Sources Subcollection
+      match /sources/{sourceId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/researches/$(researchId)).data.userId);
+        allow create: if isOwner(get(/databases/$(database)/documents/researches/$(researchId)).data.userId) && isValidSource(incoming());
+      }
+
+      // Messages Subcollection
+      match /messages/{messageId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/researches/$(researchId)).data.userId);
+        allow create: if isOwner(get(/databases/$(database)/documents/researches/$(researchId)).data.userId) && isValidMessage(incoming());
+      }
+    }
+
+    // Profiles
+    match /profiles/{userId} {
+      allow get: if isSignedIn();
+      allow create, update: if isOwner(userId) && isValidProfile(incoming());
+    }
+  }
+}
