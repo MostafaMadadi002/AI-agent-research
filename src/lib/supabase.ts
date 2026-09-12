@@ -2,6 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 
 // Use a placeholder URL if the environment variable is missing to prevent the app from crashing on startup.
 // The user will still need to provide valid credentials in the AI Studio Secrets panel for functionality to work.
+// Default credentials provided by the user
+const DEFAULT_URL = 'https://jjlufvljhsoxtbumpqhx.supabase.co';
+const DEFAULT_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqbHVmdmxqaHNveHRidW1wcWh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxNzYyNzEsImV4cCI6MjEwNDc1MjI3MX0.5j_WRCMyDqoXn6D-ExOw0w4EdNAL091QY-Wzlew3VyI';
+
 const rawUrl = import.meta.env.VITE_SUPABASE_URL;
 const rawKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -9,18 +13,19 @@ const rawKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const cleanUrl = rawUrl?.replace(/['"]/g, '').trim();
 const cleanKey = rawKey?.replace(/['"]/g, '').trim();
 
-const isValidUrl = typeof cleanUrl === 'string' && cleanUrl.startsWith('http');
-const isValidKey = typeof cleanKey === 'string' && cleanKey.length > 10;
+const envValid = typeof cleanUrl === 'string' && cleanUrl.startsWith('http') && typeof cleanKey === 'string' && cleanKey.length > 10;
 
-export const isSupabaseConfigured = isValidUrl && isValidKey;
+// Use env variables if valid, otherwise fallback to hardcoded defaults
+export const supabaseUrl = envValid ? cleanUrl : DEFAULT_URL;
+export const supabaseAnonKey = envValid ? cleanKey : DEFAULT_KEY;
 
-if (isSupabaseConfigured) {
-  console.log('✅ Supabase configured successfully with URL:', cleanUrl);
+// Since we have hardcoded fallbacks, it's always "configured" now
+export const isSupabaseConfigured = true;
+
+if (envValid) {
+  console.log('✅ Supabase configured using Environment Variables');
 } else {
-  console.warn('⚠️ Supabase not configured. Please check your .env or Secrets.');
+  console.log('✅ Supabase configured using Hardcoded Fallbacks');
 }
-
-const supabaseUrl = isSupabaseConfigured ? cleanUrl : 'https://placeholder-project.supabase.co';
-const supabaseAnonKey = isSupabaseConfigured ? cleanKey : 'placeholder-key';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
