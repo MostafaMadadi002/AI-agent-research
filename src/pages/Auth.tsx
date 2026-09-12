@@ -32,7 +32,22 @@ export default function AuthPage() {
       }
       navigate('/');
     } catch (error: any) {
-      toast.error(error.message || "Authentication failed");
+      if (error.code === 'auth/operation-not-allowed') {
+        toast.error("خطا: قابلیت ورود با ایمیل در کنسول فایربیس فعال نشده است. لطفاً از بخش Authentication آن را فعال کنید.");
+      } else {
+        toast.error(error.message || "Authentication failed");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      toast.error(error.message || "Google sign-in failed");
     } finally {
       setLoading(false);
     }
@@ -142,11 +157,18 @@ export default function AuthPage() {
           </div>
 
           <button
-            onClick={signInWithGoogle}
-            className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-white hover:bg-slate-100 text-black font-bold rounded-xl transition-all active:scale-[0.98]"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-white hover:bg-slate-100 text-black font-bold rounded-xl transition-all active:scale-[0.98] disabled:opacity-50"
           >
-            <Chrome size={20} />
-            Google Account
+            {loading ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <>
+                <Chrome size={20} />
+                Google Account
+              </>
+            )}
           </button>
 
           <p className="mt-8 text-center text-sm text-slate-500">

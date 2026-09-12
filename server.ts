@@ -122,24 +122,20 @@ async function startServer() {
     }
   });
 
-  // Vite Integration
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'custom',
-  });
-
-  app.use(vite.middlewares);
-
-  app.use('*', async (req, res, next) => {
-    const url = req.originalUrl;
-    try {
-      let template = await vite.transformIndexHtml(url, '');
-      res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
-    } catch (e) {
-      vite.ssrFixStacktrace(e as Error);
-      next(e);
-    }
-  });
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
 
   const port = 3000;
   app.listen(port, '0.0.0.0', () => {

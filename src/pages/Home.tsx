@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Sparkles, Mic, Command } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
@@ -28,14 +28,15 @@ export default function Home() {
     if (!query.trim()) return;
 
     if (!user) {
-      toast.info("Please sign in to start researching");
-      signInWithGoogle();
+      toast.error("You must be signed in to conduct research.");
+      navigate('/auth');
       return;
     }
 
     setIsSubmitting(true);
+    const path = 'researches';
     try {
-      const docRef = await addDoc(collection(db, 'researches'), {
+      const docRef = await addDoc(collection(db, path), {
         userId: user.uid,
         title: query.trim().substring(0, 50),
         query: query.trim(),
@@ -48,8 +49,7 @@ export default function Home() {
       // Navigate to active research view
       navigate(`/research/${docRef.id}`);
     } catch (error) {
-      console.error('Error starting research:', error);
-      toast.error("Failed to start research. Please try again.");
+      handleFirestoreError(error, OperationType.CREATE, path);
     } finally {
       setIsSubmitting(false);
     }
@@ -90,6 +90,7 @@ export default function Home() {
               placeholder="What do you want to research today?"
               className="flex-1 bg-transparent border-none focus:outline-none text-white text-lg placeholder:text-slate-600 py-3"
               disabled={isSubmitting}
+              maxLength={2000}
             />
             
             <div className="flex items-center gap-2 px-2 shrink-0">

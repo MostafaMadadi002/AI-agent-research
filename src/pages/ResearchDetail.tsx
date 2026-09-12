@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { doc, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp, where } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { 
   Loader2, CheckCircle2, AlertCircle, Copy, Download, Share2, 
@@ -62,12 +62,21 @@ export default function ResearchDetail() {
         toast.error("Research not found");
         navigate('/history');
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, `researches/${id}`);
     });
 
+    const messagesPath = `researches/${id}/messages`;
     const unsubscribeMessages = onSnapshot(
-      query(collection(db, 'researches', id, 'messages'), orderBy('createdAt', 'asc')),
+      query(
+        collection(db, messagesPath), 
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'asc')
+      ),
       (snapshot) => {
         setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, messagesPath);
       }
     );
 
@@ -103,10 +112,13 @@ export default function ResearchDetail() {
         })
       });
       
-      if (!response.ok) throw new Error('Research failed');
-    } catch (error) {
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Research failed');
+      }
+    } catch (error: any) {
       console.error('Research error:', error);
-      toast.error("AI Research failed to start. Retrying...");
+      toast.error(`AI Research error: ${error.message || 'Something went wrong'}`);
     } finally {
       setIsResearching(false);
     }
@@ -120,9 +132,11 @@ export default function ResearchDetail() {
     setNewMessage('');
     setIsChatting(true);
 
+    const messagesPath = `researches/${id}/messages`;
     try {
       // Add user message
-      await addDoc(collection(db, 'researches', id, 'messages'), {
+      await addDoc(collection(db, messagesPath), {
+        userId: user.uid,
         role: 'user',
         content: userMessage,
         createdAt: serverTimestamp()
@@ -143,14 +157,14 @@ export default function ResearchDetail() {
       const data = await response.json();
 
       // Add assistant message
-      await addDoc(collection(db, 'researches', id, 'messages'), {
+      await addDoc(collection(db, messagesPath), {
+        userId: user.uid,
         role: 'assistant',
         content: data.reply,
         createdAt: serverTimestamp()
       });
     } catch (error) {
-      console.error('Chat error:', error);
-      toast.error("Failed to get response");
+      handleFirestoreError(error, OperationType.CREATE, messagesPath);
     } finally {
       setIsChatting(false);
     }
