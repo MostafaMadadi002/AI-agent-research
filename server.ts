@@ -78,6 +78,11 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // Health check
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
   // API Routes
   app.post('/api/research', async (req, res) => {
     const { query, depth } = req.body;

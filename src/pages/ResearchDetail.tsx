@@ -138,18 +138,32 @@ export default function ResearchDetail() {
         updated_at: new Date().toISOString()
       }).eq('id', id);
 
+      console.log('--- Research Start ---');
       const response = await fetch('/api/research', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json' 
+        },
         body: JSON.stringify({
           query: research.query,
           depth: research.depth
         })
       });
       
+      // Check status FIRST
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || errorData.error || 'Research failed');
+        const errorText = await response.text();
+        console.error('❌ AI Error Status:', response.status);
+        console.error('❌ AI Error Body:', errorText);
+        throw new Error(`AI request failed (${response.status}): ${errorText.slice(0, 200)}`);
+      }
+
+      // Check content-type BEFORE parsing JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const rawText = await response.text();
+        console.error('❌ Non-JSON response received:', rawText.slice(0, 500));
+        throw new Error('Server returned HTML instead of JSON. Check the endpoint URL.');
       }
 
       const data = await response.json();
@@ -164,7 +178,7 @@ export default function ResearchDetail() {
 
     } catch (error: any) {
       console.error('Research error:', error);
-      toast.error(`AI Research error: ${error.message || 'Something went wrong'}`);
+      toast.error(`خطای تحقیق: ${error.message || 'مشکلی در ارتباط با سرور رخ داد'}`);
       
       // Mark as failed
       try {
@@ -198,10 +212,12 @@ export default function ResearchDetail() {
         created_at: new Date().toISOString()
       });
 
-      // Call chat API
+      // Call chat API with robust pattern
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json' 
+        },
         body: JSON.stringify({
           message: userMessage,
           report: research.report
@@ -209,8 +225,13 @@ export default function ResearchDetail() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Chat failed');
+        const errorText = await response.text();
+        throw new Error(`Chat failed (${response.status}): ${errorText.slice(0, 200)}`);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        throw new Error('Server returned HTML instead of JSON.');
       }
       
       const data = await response.json();
@@ -225,7 +246,7 @@ export default function ResearchDetail() {
       });
     } catch (error: any) {
       console.error('Chat error:', error);
-      toast.error(`Chat error: ${error.message || 'Something went wrong'}`);
+      toast.error(`خطای چت: ${error.message || 'مشکلی رخ داد'}`);
     } finally {
       setIsChatting(false);
     }
