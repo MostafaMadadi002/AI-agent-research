@@ -68,35 +68,37 @@ export default function Home() {
           Powered by Gemini 3.1 Pro
         </div>
         
-        <h1 className="text-5xl md:text-6xl font-extrabold mb-6 tracking-tight text-white">
+        <h1 className="text-4xl md:text-6xl font-extrabold mb-6 tracking-tight text-white px-4">
           Deep Research, <br />
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-400">
             Powered by AI.
           </span>
         </h1>
         
-        <p className="text-slate-400 text-lg mb-12 max-w-2xl mx-auto">
+        <p className="text-slate-400 text-base md:text-lg mb-8 md:mb-12 max-w-2xl mx-auto px-6">
           Conduct comprehensive research on any topic. We analyze the web, synthesize information, and generate professional reports in seconds.
         </p>
 
-        <form onSubmit={handleSubmit} className="relative group mb-12">
-          <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 to-blue-600 rounded-2xl blur opacity-20 group-focus-within:opacity-40 transition-opacity" />
-          <div className="relative flex items-center bg-black/40 border border-white/10 rounded-2xl p-2 pl-6 backdrop-blur-2xl focus-within:border-purple-500/50 focus-within:ring-1 focus-within:ring-purple-500/50 transition-all">
-            <Search className="text-slate-500 mr-3 shrink-0" size={20} />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="What do you want to research today?"
-              className="flex-1 bg-transparent border-none focus:outline-none text-white text-lg placeholder:text-slate-600 py-3"
-              disabled={isSubmitting}
-              maxLength={2000}
-            />
+        <form onSubmit={handleSubmit} className="relative group mb-8 md:mb-12 px-4 md:px-0">
+          <div className="absolute -inset-1 bg-gradient-to-r from-purple-500 to-blue-600 rounded-2xl blur opacity-20 group-focus-within:opacity-40 transition-opacity mx-4 md:mx-0" />
+          <div className="relative flex flex-col md:flex-row items-stretch md:items-center bg-black/40 border border-white/10 rounded-2xl p-2 md:pl-6 backdrop-blur-2xl focus-within:border-purple-500/50 focus-within:ring-1 focus-within:ring-purple-500/50 transition-all">
+            <div className="flex items-center flex-1 px-4 md:px-0 mb-2 md:mb-0">
+              <Search className="text-slate-500 mr-3 shrink-0" size={20} />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="What do you want to research?"
+                className="flex-1 bg-transparent border-none focus:outline-none text-white text-base md:text-lg placeholder:text-slate-600 py-3"
+                disabled={isSubmitting}
+                maxLength={2000}
+              />
+            </div>
             
             <div className="flex items-center gap-2 px-2 shrink-0">
               <button 
                 type="button"
-                className="p-2 text-slate-500 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                className="hidden md:flex p-2 text-slate-500 hover:text-white hover:bg-white/5 rounded-lg transition-all"
                 title="Voice input (Cmd+V)"
               >
                 <Mic size={20} />
@@ -104,7 +106,7 @@ export default function Home() {
               <button 
                 type="submit"
                 disabled={isSubmitting || !query.trim()}
-                className="px-6 py-3 bg-white text-black font-semibold rounded-xl hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-white transition-all flex items-center gap-2"
+                className="w-full md:w-auto px-6 py-3.5 md:py-3 bg-white text-black font-semibold rounded-xl hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-white transition-all flex items-center justify-center gap-2"
               >
                 {isSubmitting ? "Thinking..." : "Research"}
                 <Command size={16} />
